@@ -14,6 +14,11 @@ endif()
 
 option(BROCLIP_BUILD_TESTS "Build broclip tests" ${_broclip_top_level})
 
+# MSVC runtime: the default, the DLL CRT (/MD, /MDd), as bro builds with.
+if(MSVC AND _broclip_top_level)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
 if(_broclip_top_level AND CMAKE_GENERATOR MATCHES "Ninja")
     if(NOT DEFINED BRO_COMPILE_JOBS)
         set(BRO_COMPILE_JOBS 4)
@@ -134,6 +139,35 @@ target_include_directories(broclip
 
 broclip_warnings(broclip)
 target_link_libraries(broclip PUBLIC ${BROCLIP_EXTRA_LIBS})
+
+# --- Standalone Bronze JavaScript API ---
+# On by default only when broclip is the top-level project. A library that
+# consumes broclip then never needs bronze checked out; bro, which does want
+# the binding, sets BROCLIP_ENABLE_API ON itself.
+option(BROCLIP_ENABLE_API "Build Bronze JavaScript API" ${PROJECT_IS_TOP_LEVEL})
+if(BROCLIP_ENABLE_API)
+    if(NOT TARGET bronze_runtime_shared)
+        set(BRONZE_BUILD_SHARED_RUNTIME ON CACHE BOOL "" FORCE)
+        set(BRONZE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        if(DEFINED BRONZE_DIR AND EXISTS "${BRONZE_DIR}/CMakeLists.txt")
+            # Explicit BRONZE_DIR supplied
+        elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../bronze/CMakeLists.txt")
+            set(BRONZE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../bronze" CACHE PATH "bronze source tree")
+        elseif(EXISTS "${CMAKE_SOURCE_DIR}/../bronze/CMakeLists.txt")
+            set(BRONZE_DIR "${CMAKE_SOURCE_DIR}/../bronze" CACHE PATH "bronze source tree")
+        endif()
+
+        if(NOT BRONZE_DIR OR NOT EXISTS "${BRONZE_DIR}/CMakeLists.txt")
+            message(FATAL_ERROR
+                "bronze not found: check it out beside this repository (../bronze, with ../brass beside it) "
+                "or pass -DBRONZE_DIR=<path>.")
+        endif()
+
+        add_subdirectory("${BRONZE_DIR}" "${CMAKE_BINARY_DIR}/bronze-build" EXCLUDE_FROM_ALL)
+    endif()
+
+    add_subdirectory(src/api)
+endif()
 
 if(BROCLIP_BUILD_TESTS)
     enable_testing()

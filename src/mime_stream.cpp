@@ -208,6 +208,12 @@ StreamResult write_stream_all(int fd, const void* data, size_t len,
             return res;
         }
 
+        if (pfd.revents & (POLLERR | POLLHUP)) {
+            res.error_message = "peer closed pipe";
+            res.bytes_transferred = written;
+            return res;
+        }
+
         ssize_t n = ::write(fd, ptr + written, len - written);
         if (n > 0) {
             written += static_cast<size_t>(n);
