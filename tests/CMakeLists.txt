@@ -13,9 +13,13 @@ endfunction()
 
 broclip_test(test_clip_types)
 broclip_test(test_ring_store)
-broclip_test(test_mime_stream)
 broclip_test(test_clipboard_manager)
-broclip_test(test_data_control)
+# MIME streams move selection data over file-descriptor pipes, the way the
+# Wayland data-control protocol hands it over; Windows has no such transfer.
+if(NOT WIN32)
+    broclip_test(test_mime_stream)
+    broclip_test(test_data_control)
+endif()
 
 if(BROCLIP_ENABLE_API)
     add_executable(broclip_test_api
@@ -63,4 +67,15 @@ if(BROCLIP_ENABLE_API)
                 ENVIRONMENT "PATH=$<TARGET_FILE_DIR:bronze_runtime_shared>;$<TARGET_FILE_DIR:broclip_test_api>;$ENV{PATH}")
         endif()
     endif()
+endif()
+
+# Every test executable links no_dialogs.cpp (see the file).
+if(WIN32)
+    get_property(_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_t IN LISTS _test_targets)
+        get_target_property(_type ${_t} TYPE)
+        if(_type STREQUAL "EXECUTABLE")
+            target_sources(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/no_dialogs.cpp)
+        endif()
+    endforeach()
 endif()

@@ -3,6 +3,9 @@
 #include "eval/eval.h"
 #include "broclip/clip.h"
 #include "broclip/types.h"
+#include "broclip/backend.h"
+
+#include <memory>
 
 #include <iostream>
 #include <string>
@@ -11,7 +14,25 @@
 #include <csignal>
 #endif
 
-#define CHECK(cond)                                                            \
+// The test's clipboard: selections land here, never on the machine's own
+// clipboard, so running the test does not overwrite what the user copied.
+class MemoryBackend : public broclip::ClipboardBackend {
+public:
+    bool is_available() const override { return true; }
+    const char* name() const override { return "memory"; }
+    bool start() override { running_ = true; return true; }
+    void stop() override { running_ = false; }
+    bool is_running() const override { return running_; }
+    bool set_selection(broclip::SelectionKind, const broclip::ClipEntry&) override { return true; }
+    bool clear_selection(broclip::SelectionKind) override { return true; }
+    void set_on_selection_change(SelectionChangeHandler) override {}
+    void set_on_selection_clear(SelectionClearHandler) override {}
+
+private:
+    bool running_ = false;
+};
+
+#define CHECK(cond)                                                          \
     do {                                                                       \
         if (!(cond)) {                                                         \
             std::cerr << "CHECK failed: " #cond " (" << __FILE__ << ":"        \
@@ -31,6 +52,12 @@ int main() {
 
     // 1. Mount bro.clip into Bronze realm
     std::cout << "1. Mounting bro.clip into Bronze realm..." << std::endl;
+    {
+        auto mgr = std::make_shared<broclip::ClipboardManager>(
+            broclip::ManagerOptions{}, nullptr, std::make_unique<MemoryBackend>());
+        mgr->start();
+        broclip::api::setClipboardManager(mgr);
+    }
     broclip::api::installClip();
 
     auto g = ev::globalValue("bro");

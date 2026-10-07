@@ -44,27 +44,25 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
     auto* backend = reinterpret_cast<Win32ClipboardBackend*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
     if (msg == WM_CLIPBOARDUPDATE) {
-        if (backend) {
-            // Trigger reading clipboard
-            ClipEntry entry;
-            {
-                std::lock_guard lock(backend->mutex_);
-                entry = backend->read_clipboard_locked();
-            }
-            if (!entry.payloads.empty()) {
-                SelectionChangeHandler cb;
-                {
-                    std::lock_guard lock(backend->mutex_);
-                    cb = backend->on_selection_change_;
-                }
-                if (cb) {
-                    cb(std::move(entry));
-                }
-            }
-        }
+        if (backend) backend->handle_clipboard_update();
         return 0;
     }
     return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+void Win32ClipboardBackend::handle_clipboard_update() {
+    ClipEntry entry;
+    {
+        std::lock_guard lock(mutex_);
+        entry = read_clipboard_locked();
+    }
+    if (entry.payloads.empty()) return;
+    SelectionChangeHandler cb;
+    {
+        std::lock_guard lock(mutex_);
+        cb = on_selection_change_;
+    }
+    if (cb) cb(std::move(entry));
 }
 
 Win32ClipboardBackend::Win32ClipboardBackend() = default;
