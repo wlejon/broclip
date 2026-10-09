@@ -13,8 +13,8 @@ concurrency:
 # broclip's backends are the Wayland data-control protocol (Linux), the Win32
 # clipboard and the macOS pasteboard. The tests run the manager and the API on
 # an in-memory backend, so no job touches a real clipboard. The binding
-# (broclip_api) binds bronze, so every job lays out ../bronze and ../brass with
-# bronze's checkout-toolchain action.
+# (broclip_api) binds bronze, which (with brass) comes from the commit
+# CMakeLists.txt pins (cmake/bro_deps.cmake), fetched at configure.
 jobs:
   test:
     name: ${{ matrix.name }}
@@ -32,8 +32,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: broclip
-
-      - uses: wlejon/bronze/.github/actions/checkout-toolchain@main
 
       - name: Install packages (Linux)
         if: runner.os == 'Linux'

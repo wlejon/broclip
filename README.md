@@ -83,6 +83,9 @@ broclip/
 - CMake 3.24+
 - Ninja build system
 - Linux dependencies: `libwayland-client`, `wayland-scanner`, `pkg-config`
+- Nothing else to check out: bronze (for the JavaScript binding) is a `bro_dependency()` pin in
+  `CMakeLists.txt` (`cmake/bro_deps.cmake`), taken from `../bronze` when that working tree
+  exists and otherwise fetched at configure.
 
 ### Build
 
