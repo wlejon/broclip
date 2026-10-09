@@ -13,8 +13,8 @@ concurrency:
 # broclip's backends are the Wayland data-control protocol (Linux), the Win32
 # clipboard and the macOS pasteboard. The tests run the manager and the API on
 # an in-memory backend, so no job touches a real clipboard. The binding
-# (broclip_api) binds bronze, which (with brass) comes from the commit
-# CMakeLists.txt pins (cmake/bro_deps.cmake), fetched at configure.
+# (broclip_api) binds bronze, which (with brass) comes from the head
+# of its main branch (cmake/bro_deps.cmake), fetched at configure.
 jobs:
   test:
     name: ${{ matrix.name }}
