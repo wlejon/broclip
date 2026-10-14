@@ -2,6 +2,7 @@
 
 #include "broclip/types.h"
 
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -165,6 +166,42 @@ ClipEntry Win32ClipboardBackend::read_clipboard_locked() {
     return entry;
 }
 
+static std::string wrap_cf_html(std::string_view raw_html) {
+    if (raw_html.rfind("Version:", 0) == 0) {
+        return std::string(raw_html);
+    }
+    static constexpr const char* kHeaderFmt =
+        "Version:0.9\r\n"
+        "StartHTML:%010zu\r\n"
+        "EndHTML:%010zu\r\n"
+        "StartFragment:%010zu\r\n"
+        "EndFragment:%010zu\r\n";
+    static constexpr std::string_view kPrefix =
+        "<html>\r\n<body>\r\n<!--StartFragment-->";
+    static constexpr std::string_view kSuffix =
+        "<!--EndFragment-->\r\n</body>\r\n</html>";
+
+    char probe[128];
+    int hdr_len = std::snprintf(probe, sizeof(probe), kHeaderFmt,
+                                size_t(0), size_t(0), size_t(0), size_t(0));
+    size_t start_html = static_cast<size_t>(hdr_len);
+    size_t start_frag = start_html + kPrefix.size();
+    size_t end_frag = start_frag + raw_html.size();
+    size_t end_html = end_frag + kSuffix.size();
+
+    char header[128];
+    std::snprintf(header, sizeof(header), kHeaderFmt,
+                  start_html, end_html, start_frag, end_frag);
+
+    std::string out;
+    out.reserve(end_html);
+    out.append(header, start_html);
+    out.append(kPrefix);
+    out.append(raw_html);
+    out.append(kSuffix);
+    return out;
+}
+
 bool Win32ClipboardBackend::set_selection(SelectionKind kind, const ClipEntry& entry) {
     if (kind != SelectionKind::Clipboard) {
         // Windows only has one clipboard (no primary selection)
@@ -190,6 +227,29 @@ bool Win32ClipboardBackend::set_selection(SelectionKind kind, const ClipEntry& e
                 SetClipboardData(CF_UNICODETEXT, hMem);
             } else {
                 GlobalFree(hMem);
+            }
+        }
+    }
+
+    if (const auto* html = entry.find_payload(mime::kTextHtml)) {
+        UINT html_format = RegisterClipboardFormatA("HTML Format");
+        if (html_format != 0 && !html->data.empty()) {
+            std::string_view raw_view(reinterpret_cast<const char*>(html->data.data()), html->data.size());
+            while (!raw_view.empty() && raw_view.back() == '\0') {
+                raw_view.remove_suffix(1);
+            }
+            std::string cf_html = wrap_cf_html(raw_view);
+            size_t byte_len = cf_html.size() + 1;
+            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, byte_len);
+            if (hMem) {
+                void* dst = GlobalLock(hMem);
+                if (dst) {
+                    std::memcpy(dst, cf_html.c_str(), byte_len);
+                    GlobalUnlock(hMem);
+                    SetClipboardData(html_format, hMem);
+                } else {
+                    GlobalFree(hMem);
+                }
             }
         }
     }
