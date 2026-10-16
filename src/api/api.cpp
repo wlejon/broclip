@@ -24,6 +24,11 @@ std::shared_ptr<broclip::ClipboardManager> activeClipboardManager() {
     return g_default_clipboard_manager;
 }
 
+std::shared_ptr<broclip::ClipboardManager> existingClipboardManager() {
+    std::lock_guard lock(g_services_mu);
+    return g_custom_clipboard_manager ? g_custom_clipboard_manager : g_default_clipboard_manager;
+}
+
 void setClipboardManager(std::shared_ptr<broclip::ClipboardManager> mgr) {
     {
         std::lock_guard lock(g_services_mu);
@@ -69,8 +74,10 @@ Value ensureBroClip() {
 void installClip() {
     ev::Persistent clipObj(ensureBroClip());
     installClipOnto(clipObj.get());
-    auto mgr = activeClipboardManager();
-    connectManager(mgr);
+    // The manager (a clipboard watcher thread and the history store) starts
+    // on bro.clip's first use, not for every page; one that already runs is
+    // connected to this realm.
+    if (auto mgr = existingClipboardManager()) connectManager(mgr);
 }
 
 void tickClipAsync() {

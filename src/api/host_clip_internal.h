@@ -17,6 +17,8 @@ void disconnectManagerSlots();
 void clearClipSubscriptions();
 
 std::shared_ptr<broclip::ClipboardManager> activeClipboardManager();
+// The manager if one runs; never starts one (install and the frame tick).
+std::shared_ptr<broclip::ClipboardManager> existingClipboardManager();
 void connectManager(const std::shared_ptr<broclip::ClipboardManager>& mgr);
 
 void addClipEventListener(const std::string& event, Value callback);

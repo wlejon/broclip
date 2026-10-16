@@ -154,11 +154,15 @@ void clearClipSubscriptions() {
 
 void addClipEventListener(const std::string& event, Value callback) {
     if (!ev::isFunction(callback)) return;
-    std::lock_guard lock(g_sub_mu);
-    Subscription sub;
-    sub.event = event;
-    sub.callback = std::make_shared<ev::Persistent>(callback);
-    g_subscriptions.push_back(std::move(sub));
+    {
+        std::lock_guard lock(g_sub_mu);
+        Subscription sub;
+        sub.event = event;
+        sub.callback = std::make_shared<ev::Persistent>(callback);
+        g_subscriptions.push_back(std::move(sub));
+    }
+    // A listener needs the manager's events: start and connect it now.
+    connectManager(activeClipboardManager());
 }
 
 void removeClipEventListener(const std::string& event, Value callback) {
@@ -210,7 +214,7 @@ void dispatchClipEvent(std::string_view event, Value payload) {
 }
 
 void drainClipEvents() {
-    auto mgr = activeClipboardManager();
+    auto mgr = existingClipboardManager();
     if (mgr) {
         connectManager(mgr);
     }
