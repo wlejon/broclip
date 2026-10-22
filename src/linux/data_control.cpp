@@ -41,28 +41,42 @@ struct WaylandCallbacks {
     static void registry_global_remove(void*, wl_registry*, uint32_t) {}
 
     // ext-data-control offer listener
-    static void ext_offer_offer(void* data, ext_data_control_offer_v1*, const char* mime_type) {
-        auto* vec = static_cast<std::vector<std::string>*>(data);
-        if (vec && mime_type) {
-            vec->emplace_back(mime_type);
+    static void ext_offer_offer(void* data, ext_data_control_offer_v1* offer, const char* mime_type) {
+        auto* self = static_cast<WaylandDataControlBackend*>(data);
+        if (self && offer && mime_type) {
+            std::lock_guard lock(self->mutex_);
+            auto it = self->pending_offers_.find(reinterpret_cast<uintptr_t>(offer));
+            if (it != self->pending_offers_.end()) {
+                it->second.mimes.emplace_back(mime_type);
+            }
         }
     }
 
     // ext-data-control device listener
     static void ext_device_data_offer(void* data, ext_data_control_device_v1*,
                                       ext_data_control_offer_v1* id) {
+        if (!id) return;
         auto* self = static_cast<WaylandDataControlBackend*>(data);
         std::lock_guard lock(self->mutex_);
-        auto* mimes = new std::vector<std::string>();
+        uintptr_t key = reinterpret_cast<uintptr_t>(id);
+        auto it = self->pending_offers_.find(key);
+        if (it != self->pending_offers_.end()) {
+            if (it->second.is_ext) {
+                ext_data_control_offer_v1_destroy(reinterpret_cast<ext_data_control_offer_v1*>(key));
+            } else {
+                zwlr_data_control_offer_v1_destroy(reinterpret_cast<zwlr_data_control_offer_v1*>(key));
+            }
+            self->pending_offers_.erase(it);
+        }
         static const ext_data_control_offer_v1_listener offer_listener = {
             .offer = ext_offer_offer,
         };
-        ext_data_control_offer_v1_add_listener(id, &offer_listener, mimes);
-        self->pending_offers_[reinterpret_cast<uintptr_t>(id)] = {
+        self->pending_offers_[key] = {
             SelectionKind::Clipboard,
             {},
+            true,
         };
-        ext_data_control_offer_v1_set_user_data(id, mimes);
+        ext_data_control_offer_v1_add_listener(id, &offer_listener, self);
     }
 
     static void ext_device_selection(void* data, ext_data_control_device_v1*,
@@ -79,13 +93,11 @@ struct WaylandCallbacks {
         std::vector<std::string> mimes;
         {
             std::lock_guard lock(self->mutex_);
-            auto* p = static_cast<std::vector<std::string>*>(ext_data_control_offer_v1_get_user_data(id));
-            if (p) {
-                mimes = *p;
-                delete p;
-                ext_data_control_offer_v1_set_user_data(id, nullptr);
+            auto it = self->pending_offers_.find(reinterpret_cast<uintptr_t>(id));
+            if (it != self->pending_offers_.end()) {
+                mimes = std::move(it->second.mimes);
+                self->pending_offers_.erase(it);
             }
-            self->pending_offers_.erase(reinterpret_cast<uintptr_t>(id));
         }
 
         auto entry = self->read_offer(reinterpret_cast<uintptr_t>(id), SelectionKind::Clipboard, mimes);
@@ -113,13 +125,11 @@ struct WaylandCallbacks {
         std::vector<std::string> mimes;
         {
             std::lock_guard lock(self->mutex_);
-            auto* p = static_cast<std::vector<std::string>*>(ext_data_control_offer_v1_get_user_data(id));
-            if (p) {
-                mimes = *p;
-                delete p;
-                ext_data_control_offer_v1_set_user_data(id, nullptr);
+            auto it = self->pending_offers_.find(reinterpret_cast<uintptr_t>(id));
+            if (it != self->pending_offers_.end()) {
+                mimes = std::move(it->second.mimes);
+                self->pending_offers_.erase(it);
             }
-            self->pending_offers_.erase(reinterpret_cast<uintptr_t>(id));
         }
 
         auto entry = self->read_offer(reinterpret_cast<uintptr_t>(id), SelectionKind::Primary, mimes);
@@ -132,10 +142,10 @@ struct WaylandCallbacks {
     }
 
     // ext source listener
-    static void ext_source_send(void* data, ext_data_control_source_v1*, const char* mime_type, int32_t fd) {
+    static void ext_source_send(void* data, ext_data_control_source_v1* source, const char* mime_type, int32_t fd) {
         auto* self = static_cast<WaylandDataControlBackend*>(data);
         if (self && mime_type) {
-            self->handle_send_request(SelectionKind::Clipboard, mime_type, fd);
+            self->handle_send_request(source, mime_type, fd);
         } else if (fd >= 0) {
             ::close(fd);
         }
@@ -156,28 +166,42 @@ struct WaylandCallbacks {
     }
 
     // zwlr-data-control offer listener
-    static void wlr_offer_offer(void* data, zwlr_data_control_offer_v1*, const char* mime_type) {
-        auto* vec = static_cast<std::vector<std::string>*>(data);
-        if (vec && mime_type) {
-            vec->emplace_back(mime_type);
+    static void wlr_offer_offer(void* data, zwlr_data_control_offer_v1* offer, const char* mime_type) {
+        auto* self = static_cast<WaylandDataControlBackend*>(data);
+        if (self && offer && mime_type) {
+            std::lock_guard lock(self->mutex_);
+            auto it = self->pending_offers_.find(reinterpret_cast<uintptr_t>(offer));
+            if (it != self->pending_offers_.end()) {
+                it->second.mimes.emplace_back(mime_type);
+            }
         }
     }
 
     // zwlr-data-control device listener
     static void wlr_device_data_offer(void* data, zwlr_data_control_device_v1*,
                                       zwlr_data_control_offer_v1* id) {
+        if (!id) return;
         auto* self = static_cast<WaylandDataControlBackend*>(data);
         std::lock_guard lock(self->mutex_);
-        auto* mimes = new std::vector<std::string>();
+        uintptr_t key = reinterpret_cast<uintptr_t>(id);
+        auto it = self->pending_offers_.find(key);
+        if (it != self->pending_offers_.end()) {
+            if (it->second.is_ext) {
+                ext_data_control_offer_v1_destroy(reinterpret_cast<ext_data_control_offer_v1*>(key));
+            } else {
+                zwlr_data_control_offer_v1_destroy(reinterpret_cast<zwlr_data_control_offer_v1*>(key));
+            }
+            self->pending_offers_.erase(it);
+        }
         static const zwlr_data_control_offer_v1_listener offer_listener = {
             .offer = wlr_offer_offer,
         };
-        zwlr_data_control_offer_v1_add_listener(id, &offer_listener, mimes);
-        self->pending_offers_[reinterpret_cast<uintptr_t>(id)] = {
+        self->pending_offers_[key] = {
             SelectionKind::Clipboard,
             {},
+            false,
         };
-        zwlr_data_control_offer_v1_set_user_data(id, mimes);
+        zwlr_data_control_offer_v1_add_listener(id, &offer_listener, self);
     }
 
     static void wlr_device_selection(void* data, zwlr_data_control_device_v1*,
@@ -194,13 +218,11 @@ struct WaylandCallbacks {
         std::vector<std::string> mimes;
         {
             std::lock_guard lock(self->mutex_);
-            auto* p = static_cast<std::vector<std::string>*>(zwlr_data_control_offer_v1_get_user_data(id));
-            if (p) {
-                mimes = *p;
-                delete p;
-                zwlr_data_control_offer_v1_set_user_data(id, nullptr);
+            auto it = self->pending_offers_.find(reinterpret_cast<uintptr_t>(id));
+            if (it != self->pending_offers_.end()) {
+                mimes = std::move(it->second.mimes);
+                self->pending_offers_.erase(it);
             }
-            self->pending_offers_.erase(reinterpret_cast<uintptr_t>(id));
         }
 
         auto entry = self->read_offer(reinterpret_cast<uintptr_t>(id), SelectionKind::Clipboard, mimes);
@@ -228,13 +250,11 @@ struct WaylandCallbacks {
         std::vector<std::string> mimes;
         {
             std::lock_guard lock(self->mutex_);
-            auto* p = static_cast<std::vector<std::string>*>(zwlr_data_control_offer_v1_get_user_data(id));
-            if (p) {
-                mimes = *p;
-                delete p;
-                zwlr_data_control_offer_v1_set_user_data(id, nullptr);
+            auto it = self->pending_offers_.find(reinterpret_cast<uintptr_t>(id));
+            if (it != self->pending_offers_.end()) {
+                mimes = std::move(it->second.mimes);
+                self->pending_offers_.erase(it);
             }
-            self->pending_offers_.erase(reinterpret_cast<uintptr_t>(id));
         }
 
         auto entry = self->read_offer(reinterpret_cast<uintptr_t>(id), SelectionKind::Primary, mimes);
@@ -247,10 +267,10 @@ struct WaylandCallbacks {
     }
 
     // zwlr source listener
-    static void wlr_source_send(void* data, zwlr_data_control_source_v1*, const char* mime_type, int32_t fd) {
+    static void wlr_source_send(void* data, zwlr_data_control_source_v1* source, const char* mime_type, int32_t fd) {
         auto* self = static_cast<WaylandDataControlBackend*>(data);
         if (self && mime_type) {
-            self->handle_send_request(SelectionKind::Clipboard, mime_type, fd);
+            self->handle_send_request(source, mime_type, fd);
         } else if (fd >= 0) {
             ::close(fd);
         }
@@ -291,7 +311,12 @@ bool WaylandDataControlBackend::is_available() const {
 bool WaylandDataControlBackend::start() {
     if (running_.load()) return true;
 
-    display_ = wl_display_connect(nullptr);
+    const char* display_env = std::getenv("WAYLAND_DISPLAY");
+    if (!display_env || *display_env == '\0') {
+        return false;
+    }
+
+    display_ = wl_display_connect(display_env);
     if (!display_) return false;
 
     registry_ = wl_display_get_registry(display_);
@@ -371,6 +396,17 @@ void WaylandDataControlBackend::cleanup() {
     if (wakeup_pipe_[0] >= 0) { ::close(wakeup_pipe_[0]); wakeup_pipe_[0] = -1; }
     if (wakeup_pipe_[1] >= 0) { ::close(wakeup_pipe_[1]); wakeup_pipe_[1] = -1; }
 
+    for (auto& [offer_id, offer] : pending_offers_) {
+        if (offer_id != 0) {
+            if (offer.is_ext) {
+                ext_data_control_offer_v1_destroy(reinterpret_cast<ext_data_control_offer_v1*>(offer_id));
+            } else {
+                zwlr_data_control_offer_v1_destroy(reinterpret_cast<zwlr_data_control_offer_v1*>(offer_id));
+            }
+        }
+    }
+    pending_offers_.clear();
+
     if (ext_clipboard_source_) { ext_data_control_source_v1_destroy(ext_clipboard_source_); ext_clipboard_source_ = nullptr; }
     if (ext_primary_source_) { ext_data_control_source_v1_destroy(ext_primary_source_); ext_primary_source_ = nullptr; }
     if (ext_device_) { ext_data_control_device_v1_destroy(ext_device_); ext_device_ = nullptr; }
@@ -428,6 +464,18 @@ ClipEntry WaylandDataControlBackend::read_offer(uintptr_t offer_id, SelectionKin
     }
 
     return entry;
+}
+
+SelectionKind WaylandDataControlBackend::selection_kind_for_source(const void* source) const {
+    std::lock_guard lock(mutex_);
+    if (source && (source == ext_primary_source_ || source == wlr_primary_source_)) {
+        return SelectionKind::Primary;
+    }
+    return SelectionKind::Clipboard;
+}
+
+bool WaylandDataControlBackend::handle_send_request(const void* source, const std::string& mime, int fd) {
+    return handle_send_request(selection_kind_for_source(source), mime, fd);
 }
 
 bool WaylandDataControlBackend::handle_send_request(SelectionKind kind, const std::string& mime, int fd) {
@@ -635,6 +683,8 @@ bool WaylandDataControlBackend::clear_selection(SelectionKind) { return false; }
 void WaylandDataControlBackend::set_on_selection_change(SelectionChangeHandler) {}
 void WaylandDataControlBackend::set_on_selection_clear(SelectionClearHandler) {}
 ClipEntry WaylandDataControlBackend::read_offer(uintptr_t, SelectionKind, const std::vector<std::string>&) { return {}; }
+SelectionKind WaylandDataControlBackend::selection_kind_for_source(const void*) const { return SelectionKind::Clipboard; }
+bool WaylandDataControlBackend::handle_send_request(const void*, const std::string&, int) { return false; }
 bool WaylandDataControlBackend::handle_send_request(SelectionKind, const std::string&, int) { return false; }
 void WaylandDataControlBackend::event_loop() {}
 void WaylandDataControlBackend::cleanup() {}

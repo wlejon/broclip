@@ -75,7 +75,11 @@ static void test_wayland_data_control_backend() {
     entry.set_text("Preserved selection payload");
     backend.set_selection(broclip::SelectionKind::Clipboard, entry);
 
-    // Simulate compositor requesting MIME transfer via send callback
+    broclip::ClipEntry primary_entry;
+    primary_entry.set_text("Preserved primary payload");
+    backend.set_selection(broclip::SelectionKind::Primary, primary_entry);
+
+    // Simulate compositor requesting MIME transfer via send callback (Clipboard)
     broclip::PipePair send_pipe;
     REQUIRE(send_pipe.is_valid());
 
@@ -88,6 +92,23 @@ static void test_wayland_data_control_backend() {
     auto read_back = broclip::read_stream_all(send_pipe.read_fd());
     CHECK(read_back.success);
     CHECK_EQ(read_back.as_string(), "Preserved selection payload");
+
+    // Simulate compositor requesting MIME transfer via send callback (Primary)
+    broclip::PipePair primary_pipe;
+    REQUIRE(primary_pipe.is_valid());
+
+    int primary_write_fd = primary_pipe.release_write();
+    bool primary_handled = backend.handle_send_request(broclip::SelectionKind::Primary,
+                                                       std::string(broclip::mime::kTextPlainUtf8),
+                                                       primary_write_fd);
+    CHECK(primary_handled);
+
+    auto primary_read_back = broclip::read_stream_all(primary_pipe.read_fd());
+    CHECK(primary_read_back.success);
+    CHECK_EQ(primary_read_back.as_string(), "Preserved primary payload");
+
+    // Verify source kind lookup defaults to Clipboard when source is null
+    CHECK_EQ(backend.selection_kind_for_source(nullptr), broclip::SelectionKind::Clipboard);
 
     // Test unavailable gracefully if no compositor
     if (!backend.is_available()) {

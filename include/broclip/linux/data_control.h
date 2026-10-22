@@ -49,6 +49,8 @@ public:
 
     // Write helper when compositor requests a MIME send
     bool handle_send_request(SelectionKind kind, const std::string& mime, int fd);
+    bool handle_send_request(const void* source, const std::string& mime, int fd);
+    SelectionKind selection_kind_for_source(const void* source) const;
 
 private:
     void event_loop();
@@ -86,6 +88,7 @@ private:
     struct PendingOffer {
         SelectionKind kind = SelectionKind::Clipboard;
         std::vector<std::string> mimes;
+        bool is_ext = true;
     };
     std::unordered_map<uintptr_t, PendingOffer> pending_offers_;
 
